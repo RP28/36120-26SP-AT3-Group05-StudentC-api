@@ -21,7 +21,22 @@ Both `POST /features` and `POST /predict` accept:
 {"token":"BTC","forecast_horizon":7}
 ```
 
-`/features` returns flat root-level numeric features: `Volatility20`, `MaxPrice20`, `MaxDrawdown`, `GR`. The five mandatory routes are `/`, `/health`, `/features`, `/predict`, and `/model-metadata`.
+`/features` returns the requested token, the latest completed UTC market-data date (`YYYY-MM-DD`), and Student C's indicators nested under `features`. Example response (illustrative values):
+
+```json
+{
+  "token": "BTC",
+  "date": "2026-10-26",
+  "features": {
+    "Volatility20": 0.002,
+    "MaxPrice20": 75000.0,
+    "MaxDrawdown": 0.015,
+    "GR": 0.004
+  }
+}
+```
+
+The five mandatory routes are `/`, `/health`, `/features`, `/predict`, and `/model-metadata`.
 
 ## Spring-style profiles (only APP_PROFILE is needed)
 

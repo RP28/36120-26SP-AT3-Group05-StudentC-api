@@ -81,7 +81,12 @@ async def metadata(request:Request):
 async def features(payload:CoinRequest, request:Request):
     try:
         rows = await fetch_market_data(payload.token, request.app.state.cfg, request.app.state.http)
-        return await run_in_threadpool(student_c_features, rows)
+        values = await run_in_threadpool(student_c_features, rows)
+        return {
+            "token": payload.token,
+            "date": max(row["date"] for row in rows),
+            "features": values,
+        }
     except (httpx.HTTPError, ValueError, KeyError, TypeError):
         logger.exception("Feature request failed: token=%s", payload.token)
         raise HTTPException(status_code=503, detail="Unable to obtain required historical data")
