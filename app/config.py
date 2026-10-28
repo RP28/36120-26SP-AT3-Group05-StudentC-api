@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     request_timeout_seconds: float = Field(default=8.0, gt=0, le=120)
     model_path: str = "models/predict_seven_day_trend.pkl"
     model_metadata_path: str = "models/model_metadata.json"
-    github_url: str = ""
+    github_url: str = "https://github.com/RP28/36120-26SP-AT3-Group05-StudentC-api"
 
     # All external service base addresses live here; no endpoint URLs in adapters.py.
     kraken_url: str = "https://api.kraken.com/0/public/OHLC"

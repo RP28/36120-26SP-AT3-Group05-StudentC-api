@@ -9,3 +9,5 @@ xgboost==3.3.0
 --index-url https://pypi.org/simple/
 mlweave==0.2.3
 cloudpickle==3.1.2
+joblib==1.5.3
+matplotlib==3.11.0

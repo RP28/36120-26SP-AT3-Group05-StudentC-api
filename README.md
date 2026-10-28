@@ -1,5 +1,9 @@
 # Student C — Trend Category API (AT3 Group 05)
 
+Group 05 · Student C: Ratnadeep Patra · Student ID: 26294153.
+
+Repository: https://github.com/RP28/36120-26SP-AT3-Group05-StudentC-api
+
 FastAPI app that supports BTC, ETH, XRP, SOL, DOGE, XMR, XLM, and TRX. Uses the experiment notebook's serialized preprocessing and seven-day trend prediction function, plus its saved model metadata.
 
 ## Setup
@@ -15,6 +19,8 @@ uvicorn app.main:app --reload
 ```
 
 Only MLWeave is installed from TestPyPI. The first command skips dependency installation. The second resolves MLWeave's dependencies and all other packages against PyPI, as specified in `requirements.txt`. Alternatively, run `uv sync`: `pyproject.toml` assigns only MLWeave to an explicit TestPyPI index.
+
+The API pins the brief's versions for the runtime libraries it uses, including Python 3.12.13, pandas 2.2.2, scikit-learn 1.6.1, FastAPI 0.139.0, Uvicorn 0.50.0, XGBoost 3.3.0, joblib 1.5.3 and matplotlib 3.11.0. Notebook and frontend dependencies are maintained in their respective repositories.
 
 Use `http://127.0.0.1:8000/docs` to test. Create or edit your local `.env` with `APP_PROFILE=local`.
 
@@ -41,9 +47,22 @@ Both `POST /features` and `POST /predict` accept:
 
 The five mandatory routes are `/`, `/health`, `/features`, `/predict`, and `/model-metadata`.
 
-`/predict` passes the complete market history and separate Student A, B and D dictionaries to the saved function. It returns the notebook fields `coin`, `date`, `forecast_horizon_days`, `predicted_trend` and all five class `probabilities`. The existing API fields `prediction`, `confidence`, `forecast_horizon` and `prediction_date` are retained. `date` is the observation date. `prediction_date` is seven days later. `confidence` is the probability of the predicted class.
+`/predict` passes the complete market history and separate Student A, B and D dictionaries to the saved function. The public response contains exactly these four fields (illustrative values):
 
-`/model-metadata` serves the saved JSON's `model` schema (23 predictors), gain-based `feature_importance`, `permutation_importance` and `created_at`, together with the forecast horizon, class labels and development flag.
+```json
+{
+  "prediction": "Sideways",
+  "confidence": 0.84,
+  "forecast_horizon": 7,
+  "prediction_date": "2026-11-03"
+}
+```
+
+`prediction_date` is seven days after the latest completed UTC observation used by the model. `confidence` is that predicted class's probability, between 0 and 1. Student C's labels are Strong Downtrend, Downtrend, Sideways, Uptrend and Strong Uptrend. Pydantic response models enforce and document the prediction and feature response structures in `/docs` and `/openapi.json`. Successful predictions return HTTP 200.
+
+`/model-metadata` exposes the required top-level `target`, `algorithm`, `forecast_horizon`, `features`, `feature_importance` and `classification_labels`, plus a target description. Importance values are normalized gain proportions (0–1) keyed by the exact feature names. The metadata comes from the saved JSON. Its original gain details, permutation importance, creation time and custom estimator class are also available as `feature_importance_details`, `permutation_importance`, `created_at` and `model_class`.
+
+Invalid requests return HTTP 422 with a meaningful `error`. Unsupported coins also return `supported_tokens`, matching the brief's example. Other request errors include a `details` list identifying invalid fields. Tokens must match one of the eight uppercase tickers; `forecast_horizon` must be the integer 7. Unavailable market history or failed inference returns HTTP 503. A student feature-service outage alone does not prevent prediction: the model uses missing values for unavailable indicators.
 
 ## App profiles
 
@@ -55,11 +74,11 @@ The five mandatory routes are `/`, `/health`, `/features`, `/predict`, and `/mod
 
 No `MARKET_BACKEND`, `FEATURE_BACKEND`, or `MODEL_BACKEND` switches are needed: `config.py` derives them from `APP_PROFILE`.
 
-Local and dev predictions include `development_only=true` because they use synthetic inputs. All profiles load the actual saved model.
+All profiles load the actual saved model. `/health` identifies the active profile and each backend. Local and dev use synthetic inputs and are development profiles. The assessed Render deployment must use `APP_PROFILE=prod`, with real market data and HTTP calls to the other students' feature services.
 
 ## Render environment variables
 
-In Render Web Service → Environment, add `APP_PROFILE=dev` initially. For production set `APP_PROFILE=prod` and `STUDENT_A_URL`, `STUDENT_B_URL`, `STUDENT_D_URL`, and deploy both files in `models/`. Set `CMC_API_KEY`, `COINGECKO_API_KEY`, and `COINDESK_API_KEY` based on your provider access. URLs use the exact names listed in `config.py` and can be overridden with `KRAKEN_URL`, `COINDESK_URL`, `CMC_URL`, `COINGECKO_BASE_URL`. Also set `GITHUB_URL` and optionally `HISTORY_DAYS` (35–365 with default 90) and `REQUEST_TIMEOUT_SECONDS`.
+In Render Web Service → Environment, set `APP_PROFILE=prod`, `STUDENT_A_URL`, `STUDENT_B_URL`, `STUDENT_D_URL`, and deploy both files in `models/`. Set `CMC_API_KEY`, `COINGECKO_API_KEY`, and `COINDESK_API_KEY` based on your provider access. URLs use the exact names listed in `config.py` and can be overridden with `KRAKEN_URL`, `COINDESK_URL`, `CMC_URL`, `COINGECKO_BASE_URL`. `GITHUB_URL` defaults to this repository's URL and can be overridden. Optionally set `HISTORY_DAYS` (35–365 with default 90) and `REQUEST_TIMEOUT_SECONDS`.
 
 
 Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`. Use Python 3.12.13. Build command: `python -m pip install --index-url https://test.pypi.org/simple/ --no-deps mlweave==0.2.3 && python -m pip install -r requirements.txt`.
@@ -94,5 +113,5 @@ Expired and older-date prediction entries are pruned when predictions are reques
 
 1. With `APP_PROFILE=local`, test `/health`, `/features` and `/predict` from `/docs`.
 2. Switch to `dev`, set available API keys, restart and test all 8 tokens. A market-provider failure should attempt fallback. A 503 means historical coverage is unavailable.
-3. For teammates' URLs are available, set `prod`, restart, test real `/features`, `/predict`, and degraded provider conditions.
+3. With teammates' URLs configured, set `prod`, restart, and verify `/health` reports both market and feature backends as `http`. Test real `/features`, `/predict`, and unavailable student feature services.
 4. Check `http://127.0.0.1:8000/openapi.json` for the published request schema.

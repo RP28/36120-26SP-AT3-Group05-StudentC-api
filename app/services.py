@@ -95,7 +95,9 @@ async def predict(token:str,horizon:int,cfg:Settings,client:httpx.AsyncClient,ar
         logger.info("Prediction cache MISS: token=%s, date=%s", token, last_completed_day)
         result, complete_features = await _predict_uncached(token, horizon, cfg, client, artifact)
         current_day = (datetime.now(timezone.utc).date() - timedelta(days=1)).isoformat()
-        if complete_features and result["date"] == last_completed_day == current_day:
+        expected_prediction_date = (date.fromisoformat(last_completed_day) + timedelta(days=horizon)).isoformat()
+        if (complete_features and result["prediction_date"] == expected_prediction_date
+                and last_completed_day == current_day):
             cache[cache_key] = {
                 "data": copy.deepcopy(result),
                 "expires_at": time.monotonic() + PREDICTION_CACHE_TTL_SECONDS
@@ -131,9 +133,8 @@ async def _predict_uncached(token:str,horizon:int,cfg:Settings,client:httpx.Asyn
             or served["forecast_horizon_days"] != horizon):
         raise ValueError("Model returned inconsistent prediction identifiers")
     confidence=float(probabilities[prediction])
-    result={**served,"prediction":prediction,"confidence":confidence,"forecast_horizon":horizon,
+    result={"prediction":prediction,"confidence":confidence,"forecast_horizon":horizon,
             "prediction_date":(date.fromisoformat(served["date"])+timedelta(days=horizon)).isoformat()}
-    if cfg.app_profile != "prod": result["development_only"]=True
     logger.info("Prediction completed: token=%s, prediction=%s, confidence=%.4f, duration_ms=%.2f", token, prediction, confidence, (time.perf_counter() - start) * 1000)
     complete_features = all(
         feature in external[student]
