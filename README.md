@@ -86,6 +86,10 @@ OHLC and 24-hour USD market-volume/capitalisation metrics are requested concurre
 
 A remote feature outage results in missing model values (`NaN`), handled by this saved XGBoost model. HTTP timeouts are controlled by `REQUEST_TIMEOUT_SECONDS`.
 
+`/predict` first checks an in-memory prediction cache. Its key includes the app profile, coin, forecast horizon, history length, last completed UTC date and loaded model version. A hit returns the complete saved response immediately, skipping market-data requests, student feature calls and inference. Entries expire 30 minutes after calculation. Hits do not extend their expiry. Per-key locks prevent concurrent identical requests from duplicating a successful calculation while allowing different coins to run concurrently.
+
+Expired and older-date prediction entries are pruned when predictions are requested. Failed calculations and predictions with missing student indicators are not cached, allowing subsequent requests to retry those services. All the caches are local to each worker. Restarting clears them, and a new model load starts with an empty prediction cache.
+
 ## Integration checks
 
 1. With `APP_PROFILE=local`, test `/health`, `/features` and `/predict` from `/docs`.

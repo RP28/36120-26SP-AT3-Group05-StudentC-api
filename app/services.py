@@ -1,6 +1,7 @@
 """Student C indicators and saved-model inference orchestration."""
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+import copy
 import math
 import json
 import cloudpickle
@@ -12,9 +13,10 @@ import time
 import asyncio
 from starlette.concurrency import run_in_threadpool
 from .adapters import fetch_market_data, fetch_remote_features
-from .config import Settings
+from .config import Settings, STUDENT_FEATURES
 
 CLASS_LABELS = ["Strong Downtrend", "Downtrend", "Sideways", "Uptrend", "Strong Uptrend"]
+PREDICTION_CACHE_TTL_SECONDS = 1800  # 30 minutes
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +69,44 @@ def load_artifact(cfg:Settings):
 
 
 async def predict(token:str,horizon:int,cfg:Settings,client:httpx.AsyncClient,artifact:dict)->dict:
+    """Reuse a completed prediction before making any downstream requests.
+
+    Cache state belongs to the loaded artifact, so each worker/model load starts
+    fresh. Per-key locks let different coins run concurrently while identical
+    requests share one successful calculation.
+    """
+    last_completed_day = (datetime.now(timezone.utc).date() - timedelta(days=1)).isoformat()
+    cache_key = (cfg.app_profile, token, horizon, cfg.history_days, last_completed_day, artifact["version"])
+    cache = artifact.setdefault("prediction_cache", {})
+    locks = artifact.setdefault("prediction_cache_locks", {})
+    now = time.monotonic()
+    for key, entry in list(cache.items()):
+        if key[4] != last_completed_day or now >= entry["expires_at"]:
+            del cache[key]
+    for key, lock in list(locks.items()):
+        if key[4] != last_completed_day and not lock.locked():
+            del locks[key]
+    lock = locks.setdefault(cache_key, asyncio.Lock())
+    async with lock:
+        cached = cache.get(cache_key)
+        if cached and time.monotonic() < cached["expires_at"]:
+            logger.info("Prediction cache HIT: token=%s, date=%s", token, last_completed_day)
+            return copy.deepcopy(cached["data"])
+        logger.info("Prediction cache MISS: token=%s, date=%s", token, last_completed_day)
+        result, complete_features = await _predict_uncached(token, horizon, cfg, client, artifact)
+        current_day = (datetime.now(timezone.utc).date() - timedelta(days=1)).isoformat()
+        if complete_features and result["date"] == last_completed_day == current_day:
+            cache[cache_key] = {
+                "data": copy.deepcopy(result),
+                "expires_at": time.monotonic() + PREDICTION_CACHE_TTL_SECONDS
+            }
+            logger.info("Prediction cache UPDATED: token=%s, date=%s", token, last_completed_day)
+        else:
+            logger.info("Prediction cache SKIP: token=%s; missing features or UTC date changed", token)
+        return result
+
+
+async def _predict_uncached(token:str,horizon:int,cfg:Settings,client:httpx.AsyncClient,artifact:dict)->tuple[dict,bool]:
     start = time.perf_counter()
     logger.info("Prediction started: token=%s, horizon=%d", token, horizon)
     market_task=fetch_market_data(token,cfg,client)
@@ -95,4 +135,9 @@ async def predict(token:str,horizon:int,cfg:Settings,client:httpx.AsyncClient,ar
             "prediction_date":(date.fromisoformat(served["date"])+timedelta(days=horizon)).isoformat()}
     if cfg.app_profile != "prod": result["development_only"]=True
     logger.info("Prediction completed: token=%s, prediction=%s, confidence=%.4f, duration_ms=%.2f", token, prediction, confidence, (time.perf_counter() - start) * 1000)
-    return result
+    complete_features = all(
+        feature in external[student]
+        for student, features in STUDENT_FEATURES.items()
+        for feature in features
+    )
+    return result, complete_features

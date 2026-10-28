@@ -16,7 +16,7 @@ from datetime import date, datetime, timedelta, timezone
 import httpx
 import copy
 import time
-from .config import Settings
+from .config import Settings, STUDENT_FEATURES
 
 logger = logging.getLogger(__name__)
 
@@ -367,11 +367,7 @@ async def fetch_remote_features(token: str, horizon: int, cfg: Settings, client:
             "D": {"SMA20Volume": volume_ma20, "RelativeVolume": volumes[-1]/volume_ma20},
         }
     endpoints = {"A": cfg.student_a_url, "B": cfg.student_b_url, "D": cfg.student_d_url}
-    expected = {
-        "A": ("DailyReturn", "Return5", "Return20"),
-        "B": ("MA5", "MA20", "TrendStrength"),
-        "D": ("SMA20Volume", "RelativeVolume")
-    }
+    expected = STUDENT_FEATURES
     async def call(name, url):
         try:
             if not url:

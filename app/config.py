@@ -6,6 +6,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 COINS = ("BTC", "ETH", "XRP", "SOL", "DOGE", "XMR", "XLM", "TRX")
 FEATURES_C = ("Volatility20", "MaxPrice20", "MaxDrawdown", "GR")
+STUDENT_FEATURES = {
+    "A": ("DailyReturn", "Return5", "Return20"),
+    "B": ("MA5", "MA20", "TrendStrength"),
+    "D": ("SMA20Volume", "RelativeVolume")
+}
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", env_ignore_empty=True)
