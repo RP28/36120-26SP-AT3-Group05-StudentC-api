@@ -150,7 +150,7 @@ app=FastAPI(title="Student C — Trend Category",version="0.1.0",lifespan=lifesp
                 {"name": "Predictions", "description": "Seven-day cryptocurrency trend predictions and confidence scores."},
                 {"name": "Model Metadata", "description": "Model details, predictors, class labels and feature importance."},
             ],
-            description="Seven-day cryptocurrency trend classification. Prediction and feature examples are illustrative, not live market results.",
+            description="Seven-day cryptocurrency trend classification.",
             dependencies=[Depends(accept_correlation_id)],
             responses={200: {"headers": CORRELATION_RESPONSE_HEADERS},
                        500: unavailable_response_documentation("Internal server error")})
