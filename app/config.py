@@ -1,10 +1,13 @@
 """Single source of configuration, service URLs and Spring-style profiles."""
 from functools import lru_cache
+from contextvars import ContextVar
 from typing import Literal
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 COINS = ("BTC", "ETH", "XRP", "SOL", "DOGE", "XMR", "XLM", "TRX")
+CORRELATION_ID_HEADER = "X-Correlation-ID"
+CORRELATION_ID = ContextVar("correlation_id", default="-")
 FEATURES_C = ("Volatility20", "MaxPrice20", "MaxDrawdown", "GR")
 STUDENT_FEATURES = {
     "A": ("DailyReturn", "Return5", "Return20"),

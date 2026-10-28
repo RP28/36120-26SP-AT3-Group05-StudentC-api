@@ -64,6 +64,15 @@ The five mandatory routes are `/`, `/health`, `/features`, `/predict`, and `/mod
 
 Invalid requests return HTTP 422 with a meaningful `error`. Unsupported coins also return `supported_tokens`, matching the brief's example. Other request errors include a `details` list identifying invalid fields. Tokens must match one of the eight uppercase tickers; `forecast_horizon` must be the integer 7. Unavailable market history or failed inference returns HTTP 503. A student feature-service outage alone does not prevent prediction: the model uses missing values for unavailable indicators.
 
+Every response includes an `X-Correlation-ID` header, including cached responses, validation errors and server errors. The API accepts an incoming UUID in that header and normalizes it. An absent or invalid value generates a new UUID. IDs are kept outside the JSON body and prediction cache. A cached prediction therefore receives a fresh ID unless the caller supplies one. Application logs include the ID, and outgoing market-data and student-service requests carry the same header. Concurrent requests keep separate request contexts. Unexpected request failures are logged with their ID and return HTTP 500 with `{"detail":"Internal server error"}`.
+
+Streamlit can read the ID independently of the assignment's prediction response:
+
+```python
+correlation_id = response.headers.get("X-Correlation-ID")
+prediction = response.json()
+```
+
 ## App profiles
 
 | APP_PROFILE | Market OHLC and cap/volume | Other students /features | Model |

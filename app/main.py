@@ -2,16 +2,31 @@
 from contextlib import asynccontextmanager
 from datetime import date
 from typing import Literal
+from uuid import UUID, uuid4
 from starlette.concurrency import run_in_threadpool
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from .config import COINS, FEATURES_C, get_settings
+from .config import COINS, CORRELATION_ID, CORRELATION_ID_HEADER, FEATURES_C, get_settings
 from .adapters import fetch_market_data
 from .services import load_artifact, predict, student_c_features
 import logging
+import time
+
+
+class CorrelationIDFilter(logging.Filter):
+    def filter(self, record):
+        record.correlation_id = CORRELATION_ID.get()
+        return True
+
+
+async def propagate_correlation_id(request: httpx.Request):
+    """Set the header on each outgoing request, without mutating shared headers."""
+    correlation_id = CORRELATION_ID.get()
+    if correlation_id != "-":
+        request.headers[CORRELATION_ID_HEADER] = correlation_id
 
 class CoinRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -53,7 +68,8 @@ async def lifespan(app: FastAPI):
     logger.info("Loading model artifact")
     app.state.artifact = await run_in_threadpool(load_artifact, cfg)
     logger.info("Model artifact loaded: version=%s", app.state.artifact.get("version", "unknown"))
-    async with httpx.AsyncClient(timeout=cfg.request_timeout_seconds) as client:
+    async with httpx.AsyncClient(timeout=cfg.request_timeout_seconds,
+                                 event_hooks={"request": [propagate_correlation_id]}) as client:
         app.state.http = client
         logger.info("HTTP client initialized")
         logger.info("Student C Trend Service ready")
@@ -62,10 +78,39 @@ async def lifespan(app: FastAPI):
         finally:
             logger.info("Shutting down Student C Trend Service")
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)-8s | %(name)s | correlation_id=%(correlation_id)s | %(message)s")
+for handler in logging.getLogger().handlers:
+    handler.addFilter(CorrelationIDFilter())
 logger = logging.getLogger(__name__)
 
 app=FastAPI(title="Student C — Trend Category",version="0.1.0",lifespan=lifespan)
+
+
+@app.middleware("http")
+async def correlate_request(request: Request, call_next):
+    incoming_id = request.headers.get(CORRELATION_ID_HEADER)
+    try:
+        correlation_id = str(UUID(incoming_id)) if incoming_id else str(uuid4())
+    except ValueError:
+        correlation_id = str(uuid4())
+    context_token = CORRELATION_ID.set(correlation_id)
+    request.state.correlation_id = correlation_id
+    started = time.perf_counter()
+    try:
+        logger.info("Request started: method=%s, path=%s", request.method, request.url.path)
+        try:
+            response = await call_next(request)
+        except Exception:
+            logger.exception("Unhandled request error: method=%s, path=%s", request.method, request.url.path)
+            response = JSONResponse(status_code=500, content={"detail": "Internal server error"})
+        response.headers[CORRELATION_ID_HEADER] = correlation_id
+        logger.info("Request completed: method=%s, path=%s, status=%d, duration_ms=%.2f",
+                    request.method, request.url.path, response.status_code,
+                    (time.perf_counter() - started) * 1000)
+        return response
+    finally:
+        CORRELATION_ID.reset(context_token)
+
 
 @app.exception_handler(RequestValidationError)
 async def invalid_request(request:Request, exc:RequestValidationError):
