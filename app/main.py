@@ -15,6 +15,15 @@ from .services import load_artifact, predict, student_c_features
 import logging
 import time
 
+CORRELATION_ID_EXAMPLE = "48f8d2b9-8ef1-4d5c-b739-d1e240a4f532"
+CORRELATION_RESPONSE_HEADERS = {
+    CORRELATION_ID_HEADER: {
+        "description": "Request correlation UUID, also used in logs and downstream requests.",
+        "schema": {"type": "string", "format": "uuid"},
+        "example": CORRELATION_ID_EXAMPLE,
+    }
+}
+
 
 class CorrelationIDFilter(logging.Filter):
     def filter(self, record):
@@ -29,9 +38,11 @@ async def propagate_correlation_id(request: httpx.Request):
         request.headers[CORRELATION_ID_HEADER] = correlation_id
 
 class CoinRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    token: str
-    forecast_horizon: int = Field(strict=True, ge=7, le=7, description="Forecast horizon in days; must equal 7")
+    model_config = ConfigDict(extra="forbid", json_schema_extra={
+        "examples": [{"token": "BTC", "forecast_horizon": 7}],
+    })
+    token: str = Field(examples=["BTC"])
+    forecast_horizon: int = Field(strict=True, ge=7, le=7, examples=[7], description="Forecast horizon in days; must equal 7")
 
     @field_validator("token")
     @classmethod
@@ -41,14 +52,21 @@ class CoinRequest(BaseModel):
         return value
 
 class PredictionResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", json_schema_extra={
+        "examples": [{"prediction": "Sideways", "confidence": 0.84,
+                      "forecast_horizon": 7, "prediction_date": "2026-11-03"}],
+    })
     prediction: Literal["Strong Downtrend", "Downtrend", "Sideways", "Uptrend", "Strong Uptrend"]
     confidence: float = Field(ge=0, le=1, description="Probability associated with the predicted class")
     forecast_horizon: Literal[7]
     prediction_date: date
 
 class FeaturesResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", json_schema_extra={
+        "examples": [{"token": "BTC", "date": "2026-10-27", "features": {
+            "Volatility20": 0.002, "MaxPrice20": 75000.0, "MaxDrawdown": 0.015, "GR": 0.004,
+        }}],
+    })
     token: str
     date: date
     features: dict[str, float | None]
@@ -57,6 +75,27 @@ class RequestErrorResponse(BaseModel):
     error: str
     supported_tokens: list[str] | None = None
     details: list[dict[str, str]] | None = None
+
+REQUEST_ERROR_DOCUMENTATION = {
+    "model": RequestErrorResponse,
+    "description": "Invalid request; examples show unsupported coin and invalid forecast horizon.",
+    "headers": CORRELATION_RESPONSE_HEADERS,
+    "content": {"application/json": {"examples": {
+        "unsupported_coin": {"summary": "Unsupported cryptocurrency", "value": {
+            "error": "Unsupported cryptocurrency", "supported_tokens": list(COINS),
+        }},
+        "invalid_horizon": {"summary": "Forecast horizon must equal 7", "value": {
+            "error": "Invalid request", "details": [
+                {"field": "forecast_horizon", "message": "Input should be greater than or equal to 7"},
+            ],
+        }},
+    }}},
+}
+
+
+def unavailable_response_documentation(detail: str) -> dict:
+    return {"description": detail, "headers": CORRELATION_RESPONSE_HEADERS,
+            "content": {"application/json": {"example": {"detail": detail}}}}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -68,6 +107,15 @@ async def lifespan(app: FastAPI):
     logger.info("Loading model artifact")
     app.state.artifact = await run_in_threadpool(load_artifact, cfg)
     logger.info("Model artifact loaded: version=%s", app.state.artifact.get("version", "unknown"))
+    # Use the loaded artifact for an accurate metadata example, including all predictors.
+    for route in app.routes:
+        if getattr(route, "path", None) == "/model-metadata":
+            route.responses[200] = {
+                "description": "Metadata from the currently loaded model artifact.",
+                "headers": CORRELATION_RESPONSE_HEADERS,
+                "content": {"application/json": {"example": model_metadata_response(app.state.artifact)}},
+            }
+    app.openapi_schema = None
     async with httpx.AsyncClient(timeout=cfg.request_timeout_seconds,
                                  event_hooks={"request": [propagate_correlation_id]}) as client:
         app.state.http = client
@@ -85,6 +133,7 @@ logger = logging.getLogger(__name__)
 
 async def accept_correlation_id(correlation_id: str | None = Header(
     default=None, alias=CORRELATION_ID_HEADER,
+    examples=[CORRELATION_ID_EXAMPLE],
     description="Optional correlation UUID. A missing or invalid value generates a new UUID; the response returns it in X-Correlation-ID.",
 )):
     """Declare the incoming header in OpenAPI; middleware normalizes its value."""
@@ -92,7 +141,17 @@ async def accept_correlation_id(correlation_id: str | None = Header(
 
 
 app=FastAPI(title="Student C — Trend Category",version="0.1.0",lifespan=lifespan,
-            dependencies=[Depends(accept_correlation_id)])
+            openapi_tags=[
+                {"name": "Service Information", "description": "API overview and available endpoints."},
+                {"name": "Health", "description": "Service status and active backend configuration."},
+                {"name": "Feature Engineering", "description": "Student C's engineered cryptocurrency indicators."},
+                {"name": "Predictions", "description": "Seven-day cryptocurrency trend predictions and confidence scores."},
+                {"name": "Model Metadata", "description": "Model details, predictors, class labels and feature importance."},
+            ],
+            description="Seven-day cryptocurrency trend classification. Prediction and feature examples are illustrative, not live market results.",
+            dependencies=[Depends(accept_correlation_id)],
+            responses={200: {"headers": CORRELATION_RESPONSE_HEADERS},
+                       500: unavailable_response_documentation("Internal server error")})
 
 
 @app.middleware("http")
@@ -134,22 +193,37 @@ async def invalid_request(request:Request, exc:RequestValidationError):
                     for error in errors],
     })
 
-@app.get("/")
+@app.get("/", tags=["Service Information"], responses={200: {"headers": CORRELATION_RESPONSE_HEADERS,
+    "content": {"application/json": {"example": {
+        "project": "Student C Trend Category API",
+        "description": "Seven-day-ahead cryptocurrency trend classification",
+        "algorithm": "XGBoost Classifier", "version": "0.1.0",
+        "github": "https://github.com/RP28/36120-26SP-AT3-Group05-StudentC-api",
+        "endpoints": ["/", "/health", "/features", "/predict", "/model-metadata"],
+    }}}}})
 async def root():
     return {"project":"Student C Trend Category API","description":"Seven-day-ahead cryptocurrency trend classification",
             "algorithm":"XGBoost Classifier",
             "version":"0.1.0","github":get_settings().github_url,
             "endpoints":["/","/health","/features","/predict","/model-metadata"]}
 
-@app.get("/health")
+@app.get("/health", tags=["Health"], responses={200: {"headers": CORRELATION_RESPONSE_HEADERS,
+    "content": {"application/json": {"examples": {
+        "local": {"summary": "Local development profile", "value": {
+            "status": "ok", "profile": "local", "market_backend": "mock",
+            "feature_backend": "mock", "model_backend": "trained",
+        }},
+        "production": {"summary": "Production profile", "value": {
+            "status": "ok", "profile": "prod", "market_backend": "http",
+            "feature_backend": "http", "model_backend": "trained",
+        }},
+    }}}}})
 async def health(request:Request):
     cfg=request.app.state.cfg
     return {"status":"ok","profile":cfg.app_profile,"market_backend":cfg.market_backend,
             "feature_backend":cfg.feature_backend,"model_backend":cfg.model_backend}
 
-@app.get("/model-metadata")
-async def metadata(request:Request):
-    artifact=request.app.state.artifact
+def model_metadata_response(artifact:dict)->dict:
     saved=artifact["metadata"]
     importance={row["feature"]: float(row["importance_percentage"])/100
                 for row in saved["feature_importance"]["results"]}
@@ -168,7 +242,14 @@ async def metadata(request:Request):
             "feature_importance_details":saved["feature_importance"],
             "permutation_importance":saved["permutation_importance"],"created_at":saved["created_at"]}
 
-@app.post("/features", response_model=FeaturesResponse, responses={422: {"model": RequestErrorResponse}})
+@app.get("/model-metadata", tags=["Model Metadata"])
+async def metadata(request:Request):
+    return model_metadata_response(request.app.state.artifact)
+
+@app.post("/features", tags=["Feature Engineering"], response_model=FeaturesResponse, responses={
+    422: REQUEST_ERROR_DOCUMENTATION,
+    503: unavailable_response_documentation("Unable to obtain required historical data"),
+})
 async def features(payload:CoinRequest, request:Request):
     try:
         rows = await fetch_market_data(payload.token, request.app.state.cfg, request.app.state.http)
@@ -182,7 +263,10 @@ async def features(payload:CoinRequest, request:Request):
         logger.exception("Feature request failed: token=%s", payload.token)
         raise HTTPException(status_code=503, detail="Unable to obtain required historical data")
 
-@app.post("/predict", response_model=PredictionResponse, responses={422: {"model": RequestErrorResponse}})
+@app.post("/predict", tags=["Predictions"], response_model=PredictionResponse, responses={
+    422: REQUEST_ERROR_DOCUMENTATION,
+    503: unavailable_response_documentation("Unable to obtain required data or generate prediction"),
+})
 async def prediction(payload:CoinRequest,request:Request):
     try:
         return await predict(payload.token,payload.forecast_horizon,request.app.state.cfg,request.app.state.http,request.app.state.artifact)
