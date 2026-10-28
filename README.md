@@ -92,6 +92,8 @@ In Render Web Service → Environment, set `APP_PROFILE=prod`, `STUDENT_A_URL`, 
 
 Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`. Use Python 3.12.13. Build command: `python -m pip install --index-url https://test.pypi.org/simple/ --no-deps mlweave==0.2.3 && python -m pip install -r requirements.txt`.
 
+**Render free-tier limitation:** Free web services spin down after 15 minutes of inactivity and can take about a minute to restart when requested ([Render documentation](https://render.com/docs/free)). During startup, calls to other students' services may time out or return temporary gateway errors such as HTTP 502. Student C continues predicting with available features and missing values for unavailable indicators, which may affect prediction quality. If the logs show feature-service failures, open the affected services' `/health` endpoints, allow them to restart, and retry `/predict` once they are available. Predictions with missing student indicators are not cached, so a subsequent request can use the recovered services.
+
 ## Model artifact contract
 
 Every profile loads the **trusted** callable at `MODEL_PATH` (default `models/predict_seven_day_trend.pkl`) with cloudpickle, and JSON at `MODEL_METADATA_PATH` (default `models/model_metadata.json`). Both are loaded once per worker on startup.
