@@ -2,7 +2,7 @@
 
 Market data has two independent branches, fetched concurrently:
   OHLC: Kraken -> CoinDesk
-  market-wide USD volume / market cap: CoinMarketCap -> CoinGecko
+  market-wide USD volume / market cap: CoinGecko -> CoinMarketCap
 
 Fallbacks are lazy: a secondary provider is contacted only when its branch is
 unusable or the two selected providers cannot supply the required aligned days.
@@ -246,9 +246,9 @@ async def _fetch_market_data_uncached(token: str, cfg: Settings, client: httpx.A
         return rows
     # Fixed provider order in every environment: primary then lazy fallback.
     ohlc_providers = {"kraken": fetch_kraken, "coindesk": fetch_coindesk}
-    metrics_providers = {"coinmarketcap": fetch_cmc, "coingecko": fetch_coingecko}
+    metrics_providers = {"coingecko": fetch_coingecko, "coinmarketcap": fetch_cmc}
     ohlc_order = ["kraken", "coindesk"]
-    metrics_order = ["coinmarketcap", "coingecko"]
+    metrics_order = ["coingecko", "coinmarketcap"]
     ohlc_results: dict[str, list[dict]] = {}
     metrics_results: dict[str, list[dict]] = {}
     failures: list[str] = []

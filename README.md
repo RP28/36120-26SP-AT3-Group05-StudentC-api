@@ -78,7 +78,7 @@ prediction = response.json()
 | APP_PROFILE | Market OHLC and cap/volume | Other students /features | Model |
 |---|---|---|---|
 | `local` | both mocked | mocked | trained artifact |
-| `dev` | real Kraken→CoinDesk and CMC→CoinGecko | mocked | trained artifact |
+| `dev` | real Kraken→CoinDesk and CoinGecko→CMC | mocked | trained artifact |
 | `prod` | real with fallbacks | real parallel student calls | trained artifact |
 
 No `MARKET_BACKEND`, `FEATURE_BACKEND`, or `MODEL_BACKEND` switches are needed: `config.py` derives them from `APP_PROFILE`.
@@ -112,7 +112,7 @@ Student services receive `POST /features` with `{token, forecast_horizon}`. Resp
 
 ## Reliability and data semantics
 
-OHLC and 24-hour USD market-volume/capitalisation metrics are requested concurrently. Only failures or insufficient alignment trigger their corresponding secondary providers. Sources are normalized by UTC date and the service requires exactly `HISTORY_DAYS` consecutive completed UTC days ending yesterday.
+OHLC and 24-hour USD market-volume/capitalisation metrics are requested concurrently. OHLC uses Kraken first, then CoinDesk. Volume and market cap use CoinGecko first, then CoinMarketCap (CMC). Only failures or insufficient alignment trigger their corresponding secondary providers. Sources are normalized by UTC date and the service requires exactly `HISTORY_DAYS` consecutive completed UTC days ending yesterday.
 
 A remote feature outage results in missing model values (`NaN`), handled by this saved XGBoost model. HTTP timeouts are controlled by `REQUEST_TIMEOUT_SECONDS`.
 

@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     def check_profile(self):
         if self.app_profile == "prod" and not all((self.student_a_url, self.student_b_url, self.student_d_url)):
             raise ValueError("prod needs STUDENT_A_URL, STUDENT_B_URL and STUDENT_D_URL")
-        # The CMC key is intentionally optional: a missing key triggers CoinGecko fallback.
+        # The CMC key is optional and is only needed if CoinGecko cannot supply usable history.
         return self
 
 @lru_cache
