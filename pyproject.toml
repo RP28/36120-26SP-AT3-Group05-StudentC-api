@@ -25,3 +25,20 @@ mlweave = { index = "testpypi" }
 name = "testpypi"
 url = "https://test.pypi.org/simple/"
 explicit = true
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "pytest-cov>=6,<8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "--cov=app --cov-branch --cov-report=term-missing --cov-report=html --cov-report=json --cov-fail-under=100"
+
+[tool.coverage.run]
+source = ["app"]
+branch = true
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+fail_under = 100

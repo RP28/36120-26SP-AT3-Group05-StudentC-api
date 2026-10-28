@@ -5,3 +5,7 @@ __pycache__/
 .pytest_cache/
 .venv/
 .DS_Store
+.coverage
+.coverage.*
+coverage.json
+htmlcov/

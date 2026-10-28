@@ -120,6 +120,21 @@ A remote feature outage results in missing model values (`NaN`), handled by this
 
 Expired and older-date prediction entries are pruned when predictions are requested. Failed calculations and predictions with missing student indicators are not cached, allowing subsequent requests to retry those services. All the caches are local to each worker. Restarting clears them, and a new model load starts with an empty prediction cache.
 
+## Automated tests and coverage
+
+After installing the runtime dependencies above, install the development tools from PyPI and run the suite:
+
+```bash
+python -m pip install --index-url https://pypi.org/simple/ -r requirements-dev.txt
+python -m pytest
+```
+
+With uv, use `uv sync --group dev` followed by `uv run pytest`. Test dependencies are declared in the `dev` dependency group.
+
+The pytest configuration measures every Python module in `app/`, including branch coverage, and fails below 100%. It prints uncovered lines and generates `htmlcov/index.html` and `coverage.json`. Generated reports are excluded from Git. No application modules or individual lines are excluded from the coverage requirement.
+
+A separate smoke test within the suite loads the actual bundled prediction PKL and metadata and predicts all eight supported coins using synthetic inputs. Coverage applies to the API source, not serialized model internals or third-party packages.
+
 ## Integration checks
 
 1. With `APP_PROFILE=local`, test `/health`, `/features` and `/predict` from `/docs`.
