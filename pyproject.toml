@@ -10,6 +10,16 @@ dependencies = [
     "httpx>=0.27,<1", 
     "pandas==2.2.2", 
     "numpy>=1.26,<3", 
+    "cloudpickle==3.1.2",
+    "mlweave==0.2.3",
     "scikit-learn==1.6.1", 
     "xgboost==3.3.0"
 ]
+
+[tool.uv.sources]
+mlweave = { index = "testpypi" }
+
+[[tool.uv.index]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+explicit = true

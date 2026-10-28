@@ -4,9 +4,9 @@ from starlette.concurrency import run_in_threadpool
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, field_validator
-from .config import COINS, FEATURES_C, get_settings
+from .config import COINS, get_settings
 from .adapters import fetch_market_data
-from .services import CLASS_LABELS, load_artifact, predict, student_c_features
+from .services import load_artifact, predict, student_c_features
 import logging
 import time
 
@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI):
     logger.info("Configuration loaded: profile=%s, market=%s, features=%s, model=%s, history_days=%d",
         cfg.app_profile, cfg.market_backend, cfg.feature_backend, cfg.model_backend, cfg.history_days)
     logger.info("Loading model artifact")
-    app.state.artifact = load_artifact(cfg)
+    app.state.artifact = await run_in_threadpool(load_artifact, cfg)
     logger.info("Model artifact loaded: version=%s", app.state.artifact.get("version", "unknown"))
     async with httpx.AsyncClient(timeout=cfg.request_timeout_seconds) as client:
         app.state.http = client
@@ -56,7 +56,7 @@ app=FastAPI(title="Student C — Trend Category",version="0.1.0",lifespan=lifesp
 @app.get("/")
 async def root():
     return {"project":"Student C Trend Category API","description":"Seven-day-ahead cryptocurrency trend classification",
-            "algorithm":"XGBoost Classifier (placeholder in local/dev)",
+            "algorithm":"OrderedTrendXGBClassifier",
             "version":"0.1.0","github":get_settings().github_url,
             "endpoints":["/","/health","/features","/predict","/model-metadata"]}
 
@@ -69,13 +69,9 @@ async def health(request:Request):
 @app.get("/model-metadata")
 async def metadata(request:Request):
     artifact=request.app.state.artifact
-    model=artifact["model"]
-    importance=getattr(model,"feature_importances_",None)
-    return {"target":"Trend Category","algorithm":"XGBoost Classifier" if importance is not None else "Placeholder classifier",
-            "forecast_horizon":7,"features":list(artifact["feature_columns"]),
-            "feature_importance":dict(zip(artifact["feature_columns"],map(float,importance))) if importance is not None else {},
+    return {**artifact["metadata"],"forecast_horizon":7,
             "classification_labels":list(artifact["class_labels"]),
-            "development_only":request.app.state.cfg.model_backend=="placeholder"}
+            "development_only":request.app.state.cfg.app_profile!="prod"}
 
 @app.post("/features")
 async def features(payload:CoinRequest, request:Request):
@@ -95,6 +91,6 @@ async def features(payload:CoinRequest, request:Request):
 async def prediction(payload:CoinRequest,request:Request):
     try:
         return await predict(payload.token,payload.forecast_horizon,request.app.state.cfg,request.app.state.http,request.app.state.artifact)
-    except (httpx.HTTPError,ValueError,KeyError,TypeError) as e:
+    except (httpx.HTTPError,ValueError,KeyError,TypeError):
         logger.exception("Predict request failed: token=%s", payload.token)
-        raise HTTPException(status_code=503, detail="Unable to obtain required historical data")
+        raise HTTPException(status_code=503, detail="Unable to obtain required data or generate prediction")

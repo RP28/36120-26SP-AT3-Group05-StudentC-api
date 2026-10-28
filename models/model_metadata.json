@@ -1,0 +1,277 @@
+{
+    "model": {
+        "name": "OrderedTrendXGBClassifier",
+        "target": "TrendCategory7d",
+        "features": [
+            "coin",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "marketCap",
+            "MA20",
+            "MA5",
+            "Return20",
+            "TrendScore",
+            "volume_log1p",
+            "marketCap_log1p",
+            "Volatility20",
+            "MaxDrawdown",
+            "GR",
+            "DailyReturn",
+            "Return5",
+            "TrendStrength",
+            "SMA20Volume",
+            "RelativeVolume",
+            "MACDHistogramPct",
+            "BollingerPosition"
+        ],
+        "feature_count": 23
+    },
+    "feature_importance": {
+        "method": "xgboost_gain",
+        "results": [
+            {
+                "feature": "TrendStrength",
+                "gain": 50.36000442504883,
+                "importance_percentage": 18.923197433549
+            },
+            {
+                "feature": "BollingerPosition",
+                "gain": 41.40665817260742,
+                "importance_percentage": 15.558901882740765
+            },
+            {
+                "feature": "MaxDrawdown",
+                "gain": 25.676700592041016,
+                "importance_percentage": 9.648237332235809
+            },
+            {
+                "feature": "TrendScore",
+                "gain": 18.754711151123047,
+                "importance_percentage": 7.047241277551582
+            },
+            {
+                "feature": "MACDHistogramPct",
+                "gain": 13.883660316467285,
+                "importance_percentage": 5.216902743919588
+            },
+            {
+                "feature": "Return5",
+                "gain": 11.229710578918457,
+                "importance_percentage": 4.219658692102701
+            },
+            {
+                "feature": "Volatility20",
+                "gain": 11.100066184997559,
+                "importance_percentage": 4.170943715002784
+            },
+            {
+                "feature": "Return20",
+                "gain": 6.889780044555664,
+                "importance_percentage": 2.588893101685355
+            },
+            {
+                "feature": "GR",
+                "gain": 6.66954231262207,
+                "importance_percentage": 2.506136911901871
+            },
+            {
+                "feature": "coin",
+                "gain": 6.582210063934326,
+                "importance_percentage": 2.4733210811031747
+            },
+            {
+                "feature": "MA20",
+                "gain": 6.428851127624512,
+                "importance_percentage": 2.415695164204998
+            },
+            {
+                "feature": "marketCap_log1p",
+                "gain": 6.358536243438721,
+                "importance_percentage": 2.3892737519919556
+            },
+            {
+                "feature": "MA5",
+                "gain": 6.147439956665039,
+                "importance_percentage": 2.3099525375140524
+            },
+            {
+                "feature": "close",
+                "gain": 6.082833766937256,
+                "importance_percentage": 2.2856762155080106
+            },
+            {
+                "feature": "marketCap",
+                "gain": 5.843561172485352,
+                "importance_percentage": 2.1957675152022027
+            },
+            {
+                "feature": "DailyReturn",
+                "gain": 5.816775798797607,
+                "importance_percentage": 2.1857026845809315
+            },
+            {
+                "feature": "volume_log1p",
+                "gain": 5.793089389801025,
+                "importance_percentage": 2.176802316142696
+            },
+            {
+                "feature": "low",
+                "gain": 5.7423858642578125,
+                "importance_percentage": 2.1577500377446825
+            },
+            {
+                "feature": "SMA20Volume",
+                "gain": 5.4081244468688965,
+                "importance_percentage": 2.032148484133178
+            },
+            {
+                "feature": "volume",
+                "gain": 5.345812797546387,
+                "importance_percentage": 2.0087343550837087
+            },
+            {
+                "feature": "high",
+                "gain": 5.296679496765137,
+                "importance_percentage": 1.9902721019155363
+            },
+            {
+                "feature": "open",
+                "gain": 5.260995864868164,
+                "importance_percentage": 1.9768636755414386
+            },
+            {
+                "feature": "RelativeVolume",
+                "gain": 4.0502800941467285,
+                "importance_percentage": 1.5219269886439781
+            }
+        ]
+    },
+    "permutation_importance": {
+        "method": "permutation",
+        "scoring": "quadratic_weighted_kappa",
+        "n_repeats": 10,
+        "random_state": 42,
+        "evaluation_samples": 792,
+        "results": [
+            {
+                "feature": "BollingerPosition",
+                "mean_qwk_decrease": 0.24134301454865223,
+                "std_qwk_decrease": 0.025722955091557444
+            },
+            {
+                "feature": "MACDHistogramPct",
+                "mean_qwk_decrease": 0.03143517045676679,
+                "std_qwk_decrease": 0.007538687236028496
+            },
+            {
+                "feature": "coin",
+                "mean_qwk_decrease": 0.029743539384974815,
+                "std_qwk_decrease": 0.007349053172893779
+            },
+            {
+                "feature": "Volatility20",
+                "mean_qwk_decrease": 0.022937766109027712,
+                "std_qwk_decrease": 0.004925762051179769
+            },
+            {
+                "feature": "Return20",
+                "mean_qwk_decrease": 0.019611692104223734,
+                "std_qwk_decrease": 0.0030220712595485765
+            },
+            {
+                "feature": "Return5",
+                "mean_qwk_decrease": 0.01738836260384491,
+                "std_qwk_decrease": 0.005454350513088977
+            },
+            {
+                "feature": "marketCap",
+                "mean_qwk_decrease": 0.015402969918903043,
+                "std_qwk_decrease": 0.00294273698740474
+            },
+            {
+                "feature": "marketCap_log1p",
+                "mean_qwk_decrease": 0.013732026046111822,
+                "std_qwk_decrease": 0.0027629977557527365
+            },
+            {
+                "feature": "DailyReturn",
+                "mean_qwk_decrease": 0.007362559194757257,
+                "std_qwk_decrease": 0.0020150018123656814
+            },
+            {
+                "feature": "TrendScore",
+                "mean_qwk_decrease": 0.006617512308652573,
+                "std_qwk_decrease": 0.004622338834143488
+            },
+            {
+                "feature": "open",
+                "mean_qwk_decrease": 0.006464802848657603,
+                "std_qwk_decrease": 0.0037779135184717438
+            },
+            {
+                "feature": "GR",
+                "mean_qwk_decrease": 0.005419500393523879,
+                "std_qwk_decrease": 0.008314916416371707
+            },
+            {
+                "feature": "RelativeVolume",
+                "mean_qwk_decrease": 0.005267191732402532,
+                "std_qwk_decrease": 0.005102088478863976
+            },
+            {
+                "feature": "low",
+                "mean_qwk_decrease": 0.00470745062181388,
+                "std_qwk_decrease": 0.0026239883318160987
+            },
+            {
+                "feature": "MA20",
+                "mean_qwk_decrease": 0.004447626735622623,
+                "std_qwk_decrease": 0.0025830239838958015
+            },
+            {
+                "feature": "volume",
+                "mean_qwk_decrease": 0.0035402025606983134,
+                "std_qwk_decrease": 0.003912464933401468
+            },
+            {
+                "feature": "close",
+                "mean_qwk_decrease": 0.0034005939702910102,
+                "std_qwk_decrease": 0.002863265481671265
+            },
+            {
+                "feature": "high",
+                "mean_qwk_decrease": 0.0030828906967874992,
+                "std_qwk_decrease": 0.0028400478655891373
+            },
+            {
+                "feature": "volume_log1p",
+                "mean_qwk_decrease": 0.0024012400754701013,
+                "std_qwk_decrease": 0.00152858144994546
+            },
+            {
+                "feature": "MA5",
+                "mean_qwk_decrease": 0.002037123804747587,
+                "std_qwk_decrease": 0.002574817613332165
+            },
+            {
+                "feature": "SMA20Volume",
+                "mean_qwk_decrease": -0.0012916073918906145,
+                "std_qwk_decrease": 0.0028085629785874026
+            },
+            {
+                "feature": "TrendStrength",
+                "mean_qwk_decrease": -0.005128332016457948,
+                "std_qwk_decrease": 0.010314771905266893
+            },
+            {
+                "feature": "MaxDrawdown",
+                "mean_qwk_decrease": -0.008625538924357301,
+                "std_qwk_decrease": 0.007930355720196035
+            }
+        ]
+    },
+    "created_at": "2026-10-27T21:56:21.459273+00:00"
+}

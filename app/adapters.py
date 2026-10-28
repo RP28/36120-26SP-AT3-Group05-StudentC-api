@@ -350,18 +350,27 @@ async def fetch_market_data(token: str, cfg: Settings, client: httpx.AsyncClient
         return copy.deepcopy(rows)
 
 async def fetch_remote_features(token: str, horizon: int, cfg: Settings, client: httpx.AsyncClient) -> dict:
-    """Other students: POST /features {token, forecast_horizon} -> flat JSON."""
+    """Fetch the notebook's selected indicators, grouped by student.
+
+    Accept a flat feature object or the shared {token, date, features} envelope.
+    Missing indicators stay absent so the saved callable supplies NaN.
+    """
     if cfg.feature_backend == "mock":
+        prices = [row["close"] for row in mock_ohlc(token, cfg.history_days)]
+        volumes = [row["volume"] for row in mock_metrics(token, cfg.history_days)]
+        ma5, ma20 = sum(prices[-5:])/5, sum(prices[-20:])/20
+        volume_ma20 = sum(volumes[-20:])/20
         return {
-            "Return20": 0.04, "MA5": 65000.0, "MA20": 64000.0,
-            "TrendStrength": 0.015625, "VolumeMA20": 1_500_000_000.0,
-            "RelativeVolume": 1.1
+            "A": {"DailyReturn": prices[-1]/prices[-2]-1,
+                  "Return5": prices[-1]/prices[-6]-1, "Return20": prices[-1]/prices[-21]-1},
+            "B": {"MA5": ma5, "MA20": ma20, "TrendStrength": ma5/ma20-1},
+            "D": {"SMA20Volume": volume_ma20, "RelativeVolume": volumes[-1]/volume_ma20},
         }
     endpoints = {"A": cfg.student_a_url, "B": cfg.student_b_url, "D": cfg.student_d_url}
     expected = {
-        "A": ("Return20",),
+        "A": ("DailyReturn", "Return5", "Return20"),
         "B": ("MA5", "MA20", "TrendStrength"),
-        "D": ("VolumeMA20", "RelativeVolume")
+        "D": ("SMA20Volume", "RelativeVolume")
     }
     async def call(name, url):
         try:
@@ -373,17 +382,32 @@ async def fetch_remote_features(token: str, horizon: int, cfg: Settings, client:
             body = response.json()
             if not isinstance(body, dict):
                 raise ValueError("Expected root-level JSON object")
-            values = {k: float(body[k]) for k in expected[name] if k in body and body[k] is not None}
-            if any(not math.isfinite(v) for v in values.values()):
-                raise ValueError("Non-finite feature value")
+            if body.get("token", token) != token:
+                raise ValueError("Feature response token does not match request")
+            expected_date = (datetime.now(timezone.utc).date() - timedelta(days=1)).isoformat()
+            if body.get("date", expected_date) != expected_date:
+                raise ValueError("Feature response does not describe the latest completed UTC day")
+            source = body.get("features", body)
+            if not isinstance(source, dict):
+                raise ValueError("Expected a feature dictionary")
+            values = {}
+            for feature in expected[name]:
+                value = source.get(feature)
+                if value is None:
+                    continue
+                if isinstance(value, bool):
+                    raise ValueError(f"{feature} must be numeric, not boolean")
+                number = float(value)
+                if not math.isfinite(number):
+                    raise ValueError(f"{feature} must be finite")
+                values[feature] = number
             logger.info("Remote features retrieved: student=%s, features=%s", name, list(values.keys()))
             return values
         except PROVIDER_ERRORS as exc:
             logger.warning("Remote feature service failed: student=%s, error_type=%s; missing features will use NaN", name, type(exc).__name__)
             return {}  # model input uses NaN for missing features
     results = await asyncio.gather(*(call(name, url) for name, url in endpoints.items()))
-    merged = {}
-    for part in results:
-        merged.update(part)
-    logger.info("Remote feature retrieval completed: token=%s, retrieved_features=%d", token, len(merged))
-    return merged
+    grouped = dict(zip(endpoints, results))
+    logger.info("Remote feature retrieval completed: token=%s, retrieved_features=%d",
+                token, sum(len(values) for values in grouped.values()))
+    return grouped

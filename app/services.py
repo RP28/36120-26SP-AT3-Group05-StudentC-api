@@ -2,7 +2,8 @@
 from datetime import date, timedelta
 from pathlib import Path
 import math
-import pickle
+import json
+import cloudpickle
 import pandas as pd
 import numpy as np
 import httpx
@@ -11,19 +12,11 @@ import time
 import asyncio
 from starlette.concurrency import run_in_threadpool
 from .adapters import fetch_market_data, fetch_remote_features
-from .config import Settings, FEATURES_C
+from .config import Settings
 
 CLASS_LABELS = ["Strong Downtrend", "Downtrend", "Sideways", "Uptrend", "Strong Uptrend"]
 
 logger = logging.getLogger(__name__)
-
-class PlaceholderModel:
-    """Development-only, deterministic stub; never market advice."""
-    def predict(self, X):
-        return np.asarray(["Sideways"] * len(X))
-    def predict_proba(self, X):
-        return np.tile(np.asarray([[.05,.10,.70,.10,.05]]),(len(X),1))
-
 
 def student_c_features(rows:list[dict]) -> dict:
     """Matches AT3 notebook formulas: 20-return sample std (ddof=1), max high,
@@ -51,62 +44,55 @@ def student_c_features(rows:list[dict]) -> dict:
 
 
 def load_artifact(cfg:Settings):
-    if cfg.model_backend == "placeholder":
-        return {"model":PlaceholderModel(),"preprocessor":None,"feature_columns":["MA5","MA20","Return20", "Volatility20"],"class_labels":CLASS_LABELS,"forecast_horizon":7,"version":"mock"}
     path=Path(cfg.model_path)
     if not path.is_file():
         raise FileNotFoundError(f"Trained model artifact not found: {path}")
-    # Only load trusted, locally-produced pickle files.
     with path.open("rb") as f:
-        artifact=pickle.load(f)
-    required={"model","feature_columns","class_labels","forecast_horizon"}
-    if not isinstance(artifact,dict) or not required.issubset(artifact):
-        raise ValueError(f"Invalid model artifact: missing {required-set(artifact) if isinstance(artifact,dict) else required}")
-    if artifact["forecast_horizon"]!=7:
-        raise ValueError("Model artifact forecast horizon must equal 7")
-    return artifact
+        prediction_function=cloudpickle.load(f)
+    if not callable(prediction_function):
+        raise ValueError("Model artifact must contain the notebook's prediction callable")
+    with Path(cfg.model_metadata_path).open(encoding="utf-8") as f:
+        metadata=json.load(f)
+    model_info=metadata["model"]
+    columns=model_info["features"]
+    if (not isinstance(columns,list) or not columns
+            or not all(isinstance(column,str) for column in columns)
+            or len(set(columns)) != len(columns)
+            or model_info["feature_count"] != len(columns)):
+        raise ValueError("Model metadata must describe a unique, complete feature schema")
+    if model_info["target"] != "TrendCategory7d":
+        raise ValueError("Model metadata target must be TrendCategory7d")
+    return {"predict_function":prediction_function,"metadata":metadata,
+            "class_labels":CLASS_LABELS,"version":metadata.get("created_at","unknown")}
 
 
 async def predict(token:str,horizon:int,cfg:Settings,client:httpx.AsyncClient,artifact:dict)->dict:
-    # Market data and third-party features start together. Each market request
-    # itself fans out concurrently into OHLC and market metrics.
     start = time.perf_counter()
     logger.info("Prediction started: token=%s, horizon=%d", token, horizon)
-
     market_task=fetch_market_data(token,cfg,client)
     external_task=fetch_remote_features(token,horizon,cfg,client)
     market, external=await asyncio.gather(market_task,external_task)
-    logger.info("Prediction dependencies resolved: market_rows=%d, remote_features=%d", len(market), len(external))
-
-    local_features=await run_in_threadpool(student_c_features, market)
-    features={**external,**local_features}
-    cols=list(artifact["feature_columns"])
-    X=pd.DataFrame([{k:features.get(k,np.nan) for k in cols}],columns=cols)
-    X=X.apply(pd.to_numeric,errors="coerce")
-    if artifact.get("preprocessor") is not None:
-        X=await run_in_threadpool(artifact["preprocessor"].transform, X)
-    logger.info("Model input prepared: shape=%s, missing_features=%s", X.shape, X.columns[X.isna().any()].tolist())
-    
-    model=artifact["model"]
-    prediction=(await run_in_threadpool(model.predict, X))[0]
+    logger.info("Prediction dependencies resolved: market_rows=%d, remote_features=%d",
+                len(market), sum(len(values) for values in external.values()))
+    served=await run_in_threadpool(
+        artifact["predict_function"], market_df=pd.DataFrame(market),
+        student_a=external["A"], student_b=external["B"], student_d=external["D"], coin=token,
+    )
+    prediction=served["predicted_trend"]
     labels=artifact["class_labels"]
-    if isinstance(prediction,(int,np.integer)):
-        prediction=labels[int(prediction)]
-    prediction=str(prediction)
     if prediction not in labels:
-        raise ValueError("Model returned a class not included in artifact class_labels")
-    if not hasattr(model,"predict_proba"):
-        raise ValueError("Classification model must expose predict_proba")
-    probs=(await run_in_threadpool(model.predict_proba, X))[0]
-    classes=getattr(model,"classes_",None)
-    if classes is None:
-        confidence=float(probs[labels.index(prediction)])
-    else:
-        index=next((i for i,c in enumerate(classes) if (str(c)==prediction or (isinstance(c,(int,np.integer)) and labels[int(c)]==prediction))),None)
-        if index is None: raise ValueError("Predicted class not present in model.classes_")
-        confidence=float(probs[index])
-    result={"prediction":prediction,"confidence":confidence,"forecast_horizon":7,
-            "prediction_date":(date.fromisoformat(market[-1]["date"])+timedelta(days=7)).isoformat()}
-    if cfg.model_backend=="placeholder": result["development_only"]=True
+        raise ValueError("Model returned an unknown trend class")
+    probabilities=served["probabilities"]
+    if (set(probabilities) != set(labels)
+            or any(not math.isfinite(p) or not 0 <= p <= 1 for p in probabilities.values())
+            or not math.isclose(sum(probabilities.values()),1.0,abs_tol=1e-5)):
+        raise ValueError("Model returned invalid class probabilities")
+    if (served["coin"] != token or served["date"] != market[-1]["date"]
+            or served["forecast_horizon_days"] != horizon):
+        raise ValueError("Model returned inconsistent prediction identifiers")
+    confidence=float(probabilities[prediction])
+    result={**served,"prediction":prediction,"confidence":confidence,"forecast_horizon":horizon,
+            "prediction_date":(date.fromisoformat(served["date"])+timedelta(days=horizon)).isoformat()}
+    if cfg.app_profile != "prod": result["development_only"]=True
     logger.info("Prediction completed: token=%s, prediction=%s, confidence=%.4f, duration_ms=%.2f", token, prediction, confidence, (time.perf_counter() - start) * 1000)
     return result

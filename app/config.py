@@ -10,9 +10,10 @@ FEATURES_C = ("Volatility20", "MaxPrice20", "MaxDrawdown", "GR")
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", env_ignore_empty=True)
     app_profile: Literal["local", "dev", "prod"] = "local"
-    history_days: int = Field(default=90, ge=21, le=365)
+    history_days: int = Field(default=90, ge=35, le=365)
     request_timeout_seconds: float = Field(default=8.0, gt=0, le=120)
-    model_path: str = "models/model.pkl"
+    model_path: str = "models/predict_seven_day_trend.pkl"
+    model_metadata_path: str = "models/model_metadata.json"
     github_url: str = ""
 
     # All external service base addresses live here; no endpoint URLs in adapters.py.
@@ -37,7 +38,7 @@ class Settings(BaseSettings):
 
     @property
     def model_backend(self) -> str:
-        return "trained" if self.app_profile == "prod" else "placeholder"
+        return "trained"
 
     @model_validator(mode="after")
     def check_profile(self):
