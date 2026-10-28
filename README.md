@@ -66,7 +66,7 @@ Invalid requests return HTTP 422 with a meaningful `error`. Unsupported coins al
 
 Every response includes an `X-Correlation-ID` header, including cached responses, validation errors and server errors. The API accepts an incoming UUID in that header and normalizes it. An absent or invalid value generates a new UUID. IDs are kept outside the JSON body and prediction cache. A cached prediction therefore receives a fresh ID unless the caller supplies one. Application logs include the ID, and outgoing market-data and student-service requests carry the same header. Concurrent requests keep separate request contexts. Unexpected request failures are logged with their ID and return HTTP 500 with `{"detail":"Internal server error"}`.
 
-Streamlit can read the ID independently of the assignment's prediction response:
+The optional `X-Correlation-ID` request header appears on every API operation in `/docs`. We can supply a UUID there or from our HTTP client without adding anything to the request JSON. Streamlit can read the returned ID independently of the assignment's prediction response:
 
 ```python
 correlation_id = response.headers.get("X-Correlation-ID")

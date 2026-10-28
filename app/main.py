@@ -5,7 +5,7 @@ from typing import Literal
 from uuid import UUID, uuid4
 from starlette.concurrency import run_in_threadpool
 import httpx
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -83,7 +83,16 @@ for handler in logging.getLogger().handlers:
     handler.addFilter(CorrelationIDFilter())
 logger = logging.getLogger(__name__)
 
-app=FastAPI(title="Student C — Trend Category",version="0.1.0",lifespan=lifespan)
+async def accept_correlation_id(correlation_id: str | None = Header(
+    default=None, alias=CORRELATION_ID_HEADER,
+    description="Optional correlation UUID. A missing or invalid value generates a new UUID; the response returns it in X-Correlation-ID.",
+)):
+    """Declare the incoming header in OpenAPI; middleware normalizes its value."""
+    return correlation_id
+
+
+app=FastAPI(title="Student C — Trend Category",version="0.1.0",lifespan=lifespan,
+            dependencies=[Depends(accept_correlation_id)])
 
 
 @app.middleware("http")
