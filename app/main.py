@@ -2,7 +2,7 @@
 from contextlib import asynccontextmanager
 from datetime import date
 from typing import Literal
-from uuid import UUID, uuid4
+from uuid import uuid4
 from starlette.concurrency import run_in_threadpool
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
@@ -13,13 +13,15 @@ from .config import COINS, CORRELATION_ID, CORRELATION_ID_HEADER, FEATURES_C, ge
 from .adapters import fetch_market_data
 from .services import load_artifact, predict, student_c_features
 import logging
+import re
 import time
 
 CORRELATION_ID_EXAMPLE = "48f8d2b9-8ef1-4d5c-b739-d1e240a4f532"
+CORRELATION_ID_PATTERN = r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}"
 CORRELATION_RESPONSE_HEADERS = {
     CORRELATION_ID_HEADER: {
-        "description": "Request correlation UUID, also used in logs and downstream requests.",
-        "schema": {"type": "string", "format": "uuid"},
+        "description": "Request correlation ID, preserved in logs and downstream requests.",
+        "schema": {"type": "string", "maxLength": 128},
         "example": CORRELATION_ID_EXAMPLE,
     }
 }
@@ -134,9 +136,9 @@ logger = logging.getLogger(__name__)
 async def accept_correlation_id(correlation_id: str | None = Header(
     default=None, alias=CORRELATION_ID_HEADER,
     examples=[CORRELATION_ID_EXAMPLE],
-    description="Optional correlation UUID. A missing or invalid value generates a new UUID; the response returns it in X-Correlation-ID.",
+    description="Optional correlation ID, preserved exactly. Use 1-128 characters, starting with a letter or digit, followed by letters, digits, dots, underscores, colons or hyphens. Missing or invalid values generate a UUID.",
 )):
-    """Declare the incoming header in OpenAPI; middleware normalizes its value."""
+    """Declare the incoming header in OpenAPI and middleware selects the request ID."""
     return correlation_id
 
 
@@ -157,10 +159,8 @@ app=FastAPI(title="Student C — Trend Category",version="0.1.0",lifespan=lifesp
 @app.middleware("http")
 async def correlate_request(request: Request, call_next):
     incoming_id = request.headers.get(CORRELATION_ID_HEADER)
-    try:
-        correlation_id = str(UUID(incoming_id)) if incoming_id else str(uuid4())
-    except ValueError:
-        correlation_id = str(uuid4())
+    correlation_id = (incoming_id if incoming_id and re.fullmatch(CORRELATION_ID_PATTERN, incoming_id)
+                      else str(uuid4()))
     context_token = CORRELATION_ID.set(correlation_id)
     request.state.correlation_id = correlation_id
     started = time.perf_counter()
