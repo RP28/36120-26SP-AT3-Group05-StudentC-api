@@ -117,7 +117,7 @@ def coingecko_to_metrics(payload: dict) -> list[dict]:
     return [{"date": day, "volume": vols[day][1], "marketCap": caps[day][1]} for day in sorted(caps.keys() & vols.keys())]
 
 def cmc_to_metrics(payload: dict, token: str) -> list[dict]:
-    """Normalize CMC historical quotes; verify actual account response shape."""
+    """Normalize CMC historical quotes and verify actual account response shape."""
     data = payload.get("data", {})
     entry = data.get(str(CMC_IDS[token]), {}) if isinstance(data, dict) else {}
     if not entry and isinstance(data, dict):
@@ -179,7 +179,7 @@ def _merge_for_history(ohlc_rows: list[dict], metric_rows: list[dict], days: int
     missing = [day for day in required if day not in available]
     if missing:
         raise MarketDataError(f"Only {days - len(missing)}/{days} required completed UTC days align (missing {len(missing)}, "
-                              f"first missing: {missing[0]}); provider coverage may be delayed or incomplete")
+                              f"first missing: {missing[0]}) and provider coverage may be delayed or incomplete")
     return [{**ohlc_by_date[day], **metrics_by_date[day]} for day in required]
 
 
@@ -273,7 +273,7 @@ async def _fetch_market_data_uncached(token: str, cfg: Settings, client: httpx.A
                 logger.warning("Market provider %s supplied fewer than %d completed days", name, days)
                 failures.append(f"{name}: fewer than {days} completed dates")
         return
-    # Fetch primary branches in parallel; fallback sequentially inside each branch.
+    # Fetch primary branches in parallel and fallback sequentially inside each branch.
     await asyncio.gather(
         branch(ohlc_order, ohlc_providers, ("open", "high", "low", "close"), ohlc_results),
         branch(metrics_order, metrics_providers, ("volume", "marketCap"), metrics_results)
@@ -400,7 +400,7 @@ async def fetch_remote_features(token: str, horizon: int, cfg: Settings, client:
             logger.info("Remote features retrieved: student=%s, features=%s", name, list(values.keys()))
             return values
         except PROVIDER_ERRORS as exc:
-            logger.warning("Remote feature service failed: student=%s, error_type=%s; missing features will use NaN", name, type(exc).__name__)
+            logger.warning("Remote feature service failed: student=%s, error_type=%s. Missing features will use NaN", name, type(exc).__name__)
             return {}  # model input uses NaN for missing features
     results = await asyncio.gather(*(call(name, url) for name, url in endpoints.items()))
     grouped = dict(zip(endpoints, results))

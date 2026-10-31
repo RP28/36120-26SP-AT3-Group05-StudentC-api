@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 import httpx
 import pytest
 
-from app import main
+from app import adapters, main, services
 from app.config import COINS, CORRELATION_ID, CORRELATION_ID_HEADER, FEATURES_C
 
 
@@ -26,7 +26,7 @@ def api(monkeypatch, settings, artifact):
 def test_service_information_health_and_metadata(api, metadata):
     info = api.get("/")
     assert info.status_code == 200
-    assert set(info.json()["endpoints"]) == {"/", "/health", "/features", "/predict", "/model-metadata"}
+    assert set(info.json()["endpoints"]) == {"/", "/health", "/history", "/features", "/predict", "/model-metadata"}
     assert info.json()["github"].startswith("https://github.com/")
     health = api.get("/health")
     assert health.json() == {"status": "ok", "profile": "local", "market_backend": "mock",
@@ -123,6 +123,7 @@ def test_features_expose_only_owned_indicators(api, monkeypatch):
 def test_openapi_examples_sections_and_headers(api):
     schema = api.get("/openapi.json").json()
     expected = {"/": ("get", "Service Information"), "/health": ("get", "Health"),
+                "/history": ("get", "Historical Data"),
                 "/features": ("post", "Feature Engineering"), "/predict": ("post", "Predictions"),
                 "/model-metadata": ("get", "Model Metadata")}
     for path, (method, tag) in expected.items():
@@ -136,6 +137,72 @@ def test_openapi_examples_sections_and_headers(api):
     assert set(models["PredictionResponse"]["properties"]) == {"prediction", "confidence", "forecast_horizon", "prediction_date"}
     assert schema["paths"]["/model-metadata"]["get"]["responses"]["200"]["content"]["application/json"]["example"] == api.get("/model-metadata").json()
     assert api.get("/docs").status_code == 200
+
+
+@pytest.mark.parametrize("coin", COINS)
+def test_history_returns_completed_ohlc_only(api, coin):
+    response = api.get("/history", params={"token": coin},
+                       headers={CORRELATION_ID_HEADER: "history-test"})
+    assert response.status_code == 200
+    result = response.json()
+    assert set(result) == {"token", "data"} and result["token"] == coin
+    assert len(result["data"]) == 35
+    assert [row["date"] for row in result["data"]] == sorted(row["date"] for row in result["data"])
+    assert result["data"][0]["date"] == "2026-09-23" and result["data"][-1]["date"] == "2026-10-27"
+    assert all(set(row) == {"date", "open", "high", "low", "close"} for row in result["data"])
+    assert all(row["low"] <= row["open"] <= row["high"] for row in result["data"])
+    assert response.headers[CORRELATION_ID_HEADER] == "history-test"
+
+
+@pytest.mark.parametrize("params", [{}, {"token": "btc"}, {"token": "INVALID"},
+                                  {"token": "BTC", "days": 1}])
+def test_history_rejects_invalid_queries(api, params):
+    response = api.get("/history", params=params)
+    assert response.status_code == 422
+    if params.get("token") in ("btc", "INVALID"):
+        assert response.json() == {"error": "Unsupported cryptocurrency", "supported_tokens": list(COINS)}
+    else:
+        assert response.json()["error"] == "Invalid request"
+
+
+@pytest.mark.parametrize("error", [ValueError("unavailable"), httpx.ReadTimeout("timeout"),
+                                 KeyError("missing date"), TypeError("invalid data")])
+def test_history_provider_errors_are_correlated_503(api, monkeypatch, error):
+    monkeypatch.setattr(main, "fetch_market_data", AsyncMock(side_effect=error))
+    response = api.get("/history", params={"token": "BTC"},
+                       headers={CORRELATION_ID_HEADER: "history-failure"})
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Unable to obtain required historical data"}
+    assert response.headers[CORRELATION_ID_HEADER] == "history-failure"
+
+
+@pytest.mark.parametrize("order", [("history", "features", "predict"),
+                                 ("predict", "history", "features"),
+                                 ("features", "history", "predict")])
+def test_history_reuses_market_cache_across_endpoints(api, monkeypatch, order):
+    fetch = AsyncMock(wraps=adapters._fetch_market_data_uncached)
+    students = AsyncMock(wraps=services.fetch_remote_features)
+    monkeypatch.setattr(adapters, "_fetch_market_data_uncached", fetch)
+    monkeypatch.setattr(services, "fetch_remote_features", students)
+    for endpoint in order:
+        response = (api.get("/history", params={"token": "BTC"}) if endpoint == "history"
+                    else api.post(f"/{endpoint}", json={"token": "BTC", "forecast_horizon": 7}))
+        assert response.status_code == 200, response.text
+    assert fetch.await_count == students.await_count == 1
+    cached = next(iter(adapters._market_cache.values()))["data"]
+    assert len(cached) == 35 and "volume" in cached[0] and "marketCap" in cached[0]
+
+
+def test_history_openapi_contract_and_example(api):
+    schema = api.get("/openapi.json").json()
+    operation = schema["paths"]["/history"]["get"]
+    assert "requestBody" not in operation
+    token = next(parameter for parameter in operation["parameters"] if parameter["name"] == "token")
+    assert token["in"] == "query" and token["required"] is True
+    assert token["schema"]["examples"] == ["BTC"]
+    assert all(parameter["name"] != "forecast_horizon" for parameter in operation["parameters"])
+    model = schema["components"]["schemas"]["HistoryResponse"]
+    main.HistoryResponse.model_validate(model["examples"][0])
 
 
 def test_logging_filter_uses_current_request_context():

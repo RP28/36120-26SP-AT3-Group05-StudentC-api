@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     model_metadata_path: str = "models/model_metadata.json"
     github_url: str = "https://github.com/RP28/36120-26SP-AT3-Group05-StudentC-api"
 
-    # All external service base addresses live here; no endpoint URLs in adapters.py.
+    # All external service base addresses live here.
     kraken_url: str = "https://api.kraken.com/0/public/OHLC"
     coindesk_url: str = "https://data-api.coindesk.com/spot/v1/historical/days"
     cmc_url: str = "https://pro-api.coinmarketcap.com/v3/cryptocurrency/quotes/historical"

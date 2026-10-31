@@ -104,7 +104,7 @@ async def predict(token:str,horizon:int,cfg:Settings,client:httpx.AsyncClient,ar
             }
             logger.info("Prediction cache UPDATED: token=%s, date=%s", token, last_completed_day)
         else:
-            logger.info("Prediction cache SKIP: token=%s; missing features or UTC date changed", token)
+            logger.info("Prediction cache SKIP: token=%s. Missing features or UTC date changed", token)
         return result
 
 

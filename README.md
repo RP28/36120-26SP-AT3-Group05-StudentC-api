@@ -47,6 +47,12 @@ Both `POST /features` and `POST /predict` accept:
 
 The five mandatory routes are `/`, `/health`, `/features`, `/predict`, and `/model-metadata`.
 
+The additional `GET /history?token=BTC` endpoint returns historical daily OHLC candles under **Historical Data** in `/docs`. It accepts any supported uppercase token as a query parameter (no forecast horizon is needed). Its JSON contains `token` and a `data` array of `{date, open, high, low, close}` records, oldest first. It returns `HISTORY_DAYS` consecutive completed UTC days ending yesterday (35–365 days and default 90). Local mode returns synthetic candles and dev/prod use the configured market providers. The endpoint reuses the same 30-minute market-data cache as `/features` and `/predict`. On a cache miss, the shared helper fetches aligned OHLC, volume and market cap, so unavailable metrics can also cause HTTP 503. Volume and market cap are omitted from this endpoint's response. Unsupported or missing tokens return HTTP 422. Correlation-ID handling is the same as for other endpoints.
+
+```bash
+curl 'http://127.0.0.1:8000/history?token=BTC' -H 'X-Correlation-ID: history-btc-01'
+```
+
 `/predict` passes the complete market history and separate Student A, B and D dictionaries to the saved function. The public response contains exactly these four fields (illustrative values):
 
 ```json
@@ -62,7 +68,7 @@ The five mandatory routes are `/`, `/health`, `/features`, `/predict`, and `/mod
 
 `/model-metadata` exposes the required top-level `target`, `algorithm`, `forecast_horizon`, `features`, `feature_importance` and `classification_labels`, plus a target description. Importance values are normalized gain proportions (0–1) keyed by the exact feature names. The metadata comes from the saved JSON. Its original gain details, permutation importance, creation time and custom estimator class are also available as `feature_importance_details`, `permutation_importance`, `created_at` and `model_class`.
 
-Invalid requests return HTTP 422 with a meaningful `error`. Unsupported coins also return `supported_tokens`, matching the brief's example. Other request errors include a `details` list identifying invalid fields. Tokens must match one of the eight uppercase tickers; `forecast_horizon` must be the integer 7. Unavailable market history or failed inference returns HTTP 503. A student feature-service outage alone does not prevent prediction: the model uses missing values for unavailable indicators.
+Invalid requests return HTTP 422 with a meaningful `error`. Unsupported coins also return `supported_tokens`, matching the brief's example. Other request errors include a `details` list identifying invalid fields. Tokens must match one of the eight uppercase tickers and `forecast_horizon` must be the integer 7. Unavailable market history or failed inference returns HTTP 503. A student feature-service outage alone does not prevent prediction: the model uses missing values for unavailable indicators.
 
 Every response includes an `X-Correlation-ID` header, including cached responses, validation errors and server errors. The API accepts an incoming UUID in that header and normalizes it. An absent or invalid value generates a new UUID. IDs are kept outside the JSON body and prediction cache. A cached prediction therefore receives a fresh ID unless the caller supplies one. Application logs include the ID, and outgoing market-data and student-service requests carry the same header. Concurrent requests keep separate request contexts. Unexpected request failures are logged with their ID and return HTTP 500 with `{"detail":"Internal server error"}`.
 

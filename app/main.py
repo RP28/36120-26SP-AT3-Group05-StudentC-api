@@ -1,11 +1,11 @@
 """AT3 Group 05 Student C — Trend Category FastAPI application."""
 from contextlib import asynccontextmanager
 from datetime import date
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import uuid4
 from starlette.concurrency import run_in_threadpool
 import httpx
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -39,19 +39,41 @@ async def propagate_correlation_id(request: httpx.Request):
     if correlation_id != "-":
         request.headers[CORRELATION_ID_HEADER] = correlation_id
 
-class CoinRequest(BaseModel):
+class TokenRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", json_schema_extra={
-        "examples": [{"token": "BTC", "forecast_horizon": 7}],
+        "examples": [{"token": "BTC"}],
     })
     token: str = Field(examples=["BTC"])
-    forecast_horizon: int = Field(strict=True, ge=7, le=7, examples=[7], description="Forecast horizon in days; must equal 7")
 
     @field_validator("token")
     @classmethod
     def check_token(cls, value):
         if value not in COINS:
-            raise ValueError(f"Unsupported cryptocurrency; supported tokens: {', '.join(COINS)}")
+            raise ValueError(f"Unsupported cryptocurrency. Supported tokens: {', '.join(COINS)}")
         return value
+
+class CoinRequest(TokenRequest):
+    model_config = ConfigDict(extra="forbid", json_schema_extra={
+        "examples": [{"token": "BTC", "forecast_horizon": 7}],
+    })
+    forecast_horizon: int = Field(strict=True, ge=7, le=7, examples=[7], description="Forecast horizon in days and must equal 7")
+
+class OHLCCandle(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    date: date
+    open: float
+    high: float
+    low: float
+    close: float
+
+class HistoryResponse(BaseModel):
+    """Daily candles. The example shows one record from a longer response."""
+    model_config = ConfigDict(extra="forbid", json_schema_extra={
+        "examples": [{"token": "BTC", "data": [{"date": "2026-10-27", "open": 74000.0,
+                      "high": 75500.0, "low": 73500.0, "close": 75000.0}]}],
+    })
+    token: str
+    data: list[OHLCCandle]
 
 class PredictionResponse(BaseModel):
     model_config = ConfigDict(extra="forbid", json_schema_extra={
@@ -80,7 +102,7 @@ class RequestErrorResponse(BaseModel):
 
 REQUEST_ERROR_DOCUMENTATION = {
     "model": RequestErrorResponse,
-    "description": "Invalid request; examples show unsupported coin and invalid forecast horizon.",
+    "description": "Invalid request. Examples show unsupported coin and invalid forecast horizon.",
     "headers": CORRELATION_RESPONSE_HEADERS,
     "content": {"application/json": {"examples": {
         "unsupported_coin": {"summary": "Unsupported cryptocurrency", "value": {
@@ -146,6 +168,7 @@ app=FastAPI(title="Student C — Trend Category",version="0.1.0",lifespan=lifesp
             openapi_tags=[
                 {"name": "Service Information", "description": "API overview and available endpoints."},
                 {"name": "Health", "description": "Service status and active backend configuration."},
+                {"name": "Historical Data", "description": "Completed daily OHLC candles from the shared market-data cache."},
                 {"name": "Feature Engineering", "description": "Student C's engineered cryptocurrency indicators."},
                 {"name": "Predictions", "description": "Seven-day cryptocurrency trend predictions and confidence scores."},
                 {"name": "Model Metadata", "description": "Model details, predictors, class labels and feature importance."},
@@ -183,7 +206,7 @@ async def correlate_request(request: Request, call_next):
 @app.exception_handler(RequestValidationError)
 async def invalid_request(request:Request, exc:RequestValidationError):
     errors = exc.errors()
-    if any(error["loc"] == ("body", "token") and error["type"] == "value_error" for error in errors):
+    if any(error["loc"] in (("body", "token"), ("query", "token")) and error["type"] == "value_error" for error in errors):
         return JSONResponse(status_code=422, content={
             "error": "Unsupported cryptocurrency", "supported_tokens": list(COINS),
         })
@@ -199,13 +222,13 @@ async def invalid_request(request:Request, exc:RequestValidationError):
         "description": "Seven-day-ahead cryptocurrency trend classification",
         "algorithm": "XGBoost Classifier", "version": "0.1.0",
         "github": "https://github.com/RP28/36120-26SP-AT3-Group05-StudentC-api",
-        "endpoints": ["/", "/health", "/features", "/predict", "/model-metadata"],
+        "endpoints": ["/", "/health", "/history", "/features", "/predict", "/model-metadata"],
     }}}}})
 async def root():
     return {"project":"Student C Trend Category API","description":"Seven-day-ahead cryptocurrency trend classification",
             "algorithm":"XGBoost Classifier",
             "version":"0.1.0","github":get_settings().github_url,
-            "endpoints":["/","/health","/features","/predict","/model-metadata"]}
+            "endpoints":["/","/health","/history","/features","/predict","/model-metadata"]}
 
 @app.get("/health", tags=["Health"], responses={200: {"headers": CORRELATION_RESPONSE_HEADERS,
     "content": {"application/json": {"examples": {
@@ -231,9 +254,9 @@ def model_metadata_response(artifact:dict)->dict:
             "target_description": (
                 "Five-class cryptocurrency trend seven days after the latest completed UTC observation. "
                 "Labels use TrendScore = 0.7 * (MA5 / MA20 - 1) + 0.3 * Return20: "
-                "Strong Downtrend below -0.10; Downtrend from -0.10 to below -0.02; "
-                "Sideways from -0.02 through 0.02; Uptrend above 0.02 through 0.10; "
-                "Strong Uptrend above 0.10."
+                "Strong Downtrend below -0.10, Downtrend from -0.10 to below -0.02, "
+                "Sideways from -0.02 through 0.02, Uptrend above 0.02 through 0.10, "
+                "and Strong Uptrend above 0.10."
             ),
             "algorithm":"XGBoost Classifier","forecast_horizon":7,
             "features":list(saved["model"]["features"]),"feature_importance":importance,
@@ -245,6 +268,30 @@ def model_metadata_response(artifact:dict)->dict:
 @app.get("/model-metadata", tags=["Model Metadata"])
 async def metadata(request:Request):
     return model_metadata_response(request.app.state.artifact)
+
+@app.get("/history", tags=["Historical Data"], response_model=HistoryResponse,
+         summary="Get historical daily OHLC candles",
+         description="Returns HISTORY_DAYS completed UTC daily candles, oldest first, ending yesterday. "
+                     "Uses the same 30-minute market-data cache as /features and /predict. "
+                     "A cache miss fetches aligned OHLC, volume and market cap and only date and OHLC are returned. "
+                     "The response example is shortened to one candle.",
+         responses={
+             422: {**REQUEST_ERROR_DOCUMENTATION,
+                   "description": "Missing, unsupported or invalid token query parameter.",
+                   "content": {"application/json": {"example": {
+                       "error": "Unsupported cryptocurrency", "supported_tokens": list(COINS),
+                   }}}},
+             503: unavailable_response_documentation("Unable to obtain required historical data"),
+         })
+async def history(request:Request, payload:Annotated[TokenRequest, Query()]):
+    try:
+        rows = await fetch_market_data(payload.token, request.app.state.cfg, request.app.state.http)
+        return {"token": payload.token,
+                "data": [{field: row[field] for field in ("date", "open", "high", "low", "close")}
+                         for row in rows]}
+    except (httpx.HTTPError, ValueError, KeyError, TypeError):
+        logger.exception("History request failed: token=%s", payload.token)
+        raise HTTPException(status_code=503, detail="Unable to obtain required historical data")
 
 @app.post("/features", tags=["Feature Engineering"], response_model=FeaturesResponse, responses={
     422: REQUEST_ERROR_DOCUMENTATION,
