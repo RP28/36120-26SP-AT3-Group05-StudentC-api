@@ -1,0 +1,34 @@
+# Submission archive allowlist. These rules affect git archive, not normal Git tracking.
+* export-ignore
+
+# Application source, runtime model artifacts, and reproducible tests.
+/app -export-ignore
+/app/** -export-ignore
+/models -export-ignore
+/models/** -export-ignore
+/tests -export-ignore
+/tests/** -export-ignore
+
+# Setup instructions and dependency/configuration manifests.
+/README.md -export-ignore
+/pyproject.toml -export-ignore
+/requirements.txt -export-ignore
+/requirements-dev.txt -export-ignore
+/.gitignore -export-ignore
+
+# Exclude local secrets, environments, caches and generated files inside allowed folders too.
+.env export-ignore
+.env.* export-ignore
+.aws export-ignore
+.venv export-ignore
+venv export-ignore
+__pycache__ export-ignore
+*.py[cod] export-ignore
+.pytest_cache export-ignore
+.coverage export-ignore
+.coverage.* export-ignore
+coverage.json export-ignore
+coverage.xml export-ignore
+htmlcov export-ignore
+.DS_Store export-ignore
+*.zip export-ignore
